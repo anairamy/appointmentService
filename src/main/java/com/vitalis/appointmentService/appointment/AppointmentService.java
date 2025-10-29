@@ -11,6 +11,7 @@ import java.util.*;
 public class AppointmentService {
 
     private final AppointmentRepository appointmentRepository;
+    private final RestTemplate restTemplate = new RestTemplate();
 
     public AppointmentService(AppointmentRepository appointmentRepo) {
         this.appointmentRepository = appointmentRepo;
@@ -26,10 +27,6 @@ public class AppointmentService {
 
     public List<AppointmentModel> getAppointmentsForUserWithDoctor(Long doctorId, Long userId) {
         return appointmentRepository.findByDoctorIdAndUserId(doctorId, userId);
-    }
-
-    public List<AppointmentModel> getAppointmentsForUser(Long userId) {
-        return appointmentRepository.findByUserId(userId);
     }
 
     public List<AppointmentModel> getAllAppointmentsForDoctor(Long doctorId) {
@@ -56,13 +53,6 @@ public class AppointmentService {
         return appointmentRepository.findById(id);
     }
 
-    public AppointmentModel updateAppointmentStatus(Long id, String status) {
-        AppointmentModel appointment = appointmentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Appointment not found"));
-        appointment.setStatus(status);
-        return appointmentRepository.save(appointment);
-    }
-
     public AppointmentModel updateAppointment(Long id, AppointmentModel updatedAppointment) {
         return appointmentRepository.findById(id).map(existing -> {
             existing.setDoctorId(updatedAppointment.getDoctorId());
@@ -75,12 +65,39 @@ public class AppointmentService {
         }).orElseThrow(() -> new RuntimeException("Appointment not found"));
     }
 
-    public void deleteAppointment(Long id) {
-        appointmentRepository.deleteById(id);
-    }
-
     public void deleteAllAppointment() {
         appointmentRepository.deleteAll();
+    }
+
+    public AppointmentModel updateAppointmentStatus(Long id, String status) {
+        AppointmentModel appointment = appointmentRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Appointment not found"));
+        appointment.setStatus(status);
+
+        if ("CANCELED".equalsIgnoreCase(status)) {
+            try {
+                String refundUrl = "http://payment-service:8088/payment/refund/appointment/" + id;
+                restTemplate.postForObject(refundUrl, null, Void.class);
+                System.out.println("Refund triggered successfully for appointment " + id);
+            } catch (Exception e) {
+                System.err.println("Failed to trigger refund for appointment " + id + ": " + e.getMessage());
+            }
+        }
+
+        return appointmentRepository.save(appointment);
+    }
+
+    public void deleteAppointment(Long id) {
+        // ✅ Trigger refund before deletion (optional safety)
+        try {
+            String refundUrl = "http://payment-service:8088/payment/refund/appointment/" + id;
+            restTemplate.postForObject(refundUrl, null, Void.class);
+            System.out.println("Refund triggered before deleting appointment " + id);
+        } catch (Exception e) {
+            System.err.println("Failed to trigger refund before delete: " + e.getMessage());
+        }
+
+        appointmentRepository.deleteById(id);
     }
 
 

@@ -6,6 +6,7 @@ import com.vitalis.appointmentService.appointment.AppointmentService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -17,6 +18,7 @@ public class Controller {
 
     private final AppointmentService appointmentService;
     private final AppointmentRepository appointmentRepository;
+    private final RestTemplate restTemplate = new RestTemplate();
 
     public Controller(AppointmentService appointmentService,
                       AppointmentRepository appointmentRepository) {
@@ -49,7 +51,6 @@ public class Controller {
     @GetMapping("/date")
     public List<AppointmentModel> getAppointmentsByDoctorAndDate(@RequestParam Long doctorId, @RequestParam String date) {
         LocalDate dateSlot = LocalDate.parse(date);
-
         return appointmentService.getAppointmentsByDoctorAndDate(doctorId, dateSlot);
     }
 
@@ -83,7 +84,19 @@ public class Controller {
 
     @PutMapping("/{id}/status")
     public AppointmentModel updateAppointmentStatus(@PathVariable Long id, @RequestParam String status) {
-        return appointmentService.updateAppointmentStatus(id, status);
+        AppointmentModel updated = appointmentService.updateAppointmentStatus(id, status);
+
+        if ("CANCELED".equalsIgnoreCase(status)) {
+            try {
+                String refundUrl = "http://payment-service:8088/payment/refund/appointment/" + id;
+                restTemplate.postForObject(refundUrl, null, Void.class);
+                System.out.println("Refund triggered automatically for appointment " + id);
+            } catch (Exception e) {
+                System.err.println("Failed to trigger refund for appointment " + id + ": " + e.getMessage());
+            }
+        }
+
+        return updated;
     }
 
     @GetMapping("/{id}")
@@ -100,4 +113,6 @@ public class Controller {
     public void deleteAllAppointment() {
         appointmentService.deleteAllAppointment();
     }
+
+
 }
